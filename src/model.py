@@ -2,9 +2,16 @@ import numpy as np
 from segment_anything import SamPredictor, sam_model_registry
 
 
-def get_model(model_name, logger):
-    if model_name.lower() == "sam":
-        return SAMModel()
+def get_model(model_info, logger):
+    """Returns an instance of the selected model
+    Args:
+        model_info: Dict containing all required info for the model
+        logger: Logger instance
+    Returns: 
+        Selected model instance
+    """
+    if model_info["model_name"].lower() == "sam":
+        return SAMModel(model_info["model_type"], model_info["checkpoint_path"])
     else:
         logger.error(f"Model {model_name} does not exist. Please provide supported model")
 
@@ -18,8 +25,8 @@ class SAMModel:
         predictor: A SamPredictor instance for making predictions.
     """
 
-    def __init__(self, model_type: str = "vit_h", 
-                 checkpoint_path: str = "./checkpoints/sam_vit_h_4b8939.pth"):
+    def __init__(self, model_type: str, 
+                 checkpoint_path: str):
         """Initializes the SAM model.
         Args:
             model_type: The type of SAM model to use. Defaults to "vit_h".

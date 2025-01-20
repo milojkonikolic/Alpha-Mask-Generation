@@ -1,0 +1,6 @@
+image_width: 1408
+image_height: 832
+model_info:
+  model_name: SAM
+  model_type: vit_h
+  checkpoint_path: ../checkpoints/sam_vit_h_4b8939.pth

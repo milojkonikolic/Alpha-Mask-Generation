@@ -25,10 +25,13 @@ class ObjectExtractor:
     extract them using SAM model, and overlay them on virtual backgrounds.
     """
 
-    def __init__(self, root, img_width, img_height, model_name):
+    def __init__(self, root, img_width, img_height, model_info):
         """Initializes the ObjectExtractor application.
         Args:
             root: The root tkinter window that will contain this application.
+            img_width: Width of the final image
+            img_height: Height of the final image
+            model_info: All info regarding model
         """
         self.root = root
         self.root.title("Object Extractor App")
@@ -39,7 +42,7 @@ class ObjectExtractor:
         self.canvas = tk.Canvas(root, width=self.canvas_shape[0], height=self.canvas_shape[1], bg="gray")
         self.canvas.pack(fill="both", expand=True)
 
-        self.model = get_model(model_name, self.logger)
+        self.model = get_model(model_info, self.logger)
 
         self.image = None
         self.image_path = None
@@ -87,6 +90,11 @@ class ObjectExtractor:
             self.display_image(self.image)
 
     def scale_image(self, scale_factor=1.0, rotation_angle=0.0):
+        """Scales and optionally rotates the loaded image around its center.
+        Args:
+            scale_factor: Float value representing the scaling factor (default: 1.0)
+            rotation_angle: Float value representing rotation angle in degrees (default: 0.0)
+        """
         img_center = np.array(self.image.shape[:2])[::-1] / 2
         zoom_matrix = cv2.getRotationMatrix2D(tuple(img_center), rotation_angle, scale_factor)
         img_shape = (self.image.shape[1], self.image.shape[0])
