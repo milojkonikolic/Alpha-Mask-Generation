@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from model import SAMModel
+from model import get_model
 
 
 def get_logger():
@@ -25,7 +25,7 @@ class ObjectExtractor:
     extract them using SAM model, and overlay them on virtual backgrounds.
     """
 
-    def __init__(self, root):
+    def __init__(self, root, img_width, img_height, model_name):
         """Initializes the ObjectExtractor application.
         Args:
             root: The root tkinter window that will contain this application.
@@ -35,11 +35,11 @@ class ObjectExtractor:
         self.logger = get_logger()
 
         # Set canvas dimensions
-        self.canvas_shape = (800, 600)
+        self.canvas_shape = (img_width, img_height)
         self.canvas = tk.Canvas(root, width=self.canvas_shape[0], height=self.canvas_shape[1], bg="gray")
         self.canvas.pack(fill="both", expand=True)
 
-        self.model = SAMModel()
+        self.model = get_model(model_name, self.logger)
 
         self.image = None
         self.image_path = None
@@ -49,6 +49,15 @@ class ObjectExtractor:
         self.rect_id = None
         self.start_x = self.start_y = self.end_x = self.end_y = 0
         self.dot_x = self.dot_y = None
+
+        # Add scale slider
+        self.scale = tk.DoubleVar(value=1.0)
+        self.scale_label = tk.Label(root, text="Scale:")
+        self.scale_label.pack(side="left", padx=5, pady=10)
+        
+        self.scale_slider = tk.Scale(root, from_=0.1, to=5.0, resolution=0.05, orient=tk.HORIZONTAL, 
+                                     variable=self.scale, length=300)
+        self.scale_slider.pack(side="left", padx=5, pady=10)
 
         self.load_image_button = tk.Button(root, text="Load Object Image", command=self.load_object_image)
         self.load_image_button.pack(side="left", padx=10, pady=10)
@@ -71,8 +80,17 @@ class ObjectExtractor:
             self.image_path = file_path
             self.image = cv2.imread(file_path)
             self.image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
+            # Apply scaling to the coordinates
+            scale_factor = self.scale.get()
+            self.scale_image(scale_factor)
             self.image = cv2.resize(self.image, self.canvas_shape)
             self.display_image(self.image)
+
+    def scale_image(self, scale_factor=1.0, rotation_angle=0.0):
+        img_center = np.array(self.image.shape[:2])[::-1] / 2
+        zoom_matrix = cv2.getRotationMatrix2D(tuple(img_center), rotation_angle, scale_factor)
+        img_shape = (self.image.shape[1], self.image.shape[0])
+        self.image = cv2.warpAffine(self.image, zoom_matrix, img_shape)
 
     def load_virtual_image(self):
         """Loads and displays the virtual background image.
@@ -155,13 +173,41 @@ class ObjectExtractor:
         # Place the object onto the virtual image
         shift_x, shift_y = self.position_mask()
         self.shift_image(shift_x, shift_y)
-        alpha_mask = np.stack([self.mask, self.mask, self.mask], axis=2).astype(np.float32)
+
+        # Apply Gaussian blur to smooth the mask edges
+        smoothed_mask = cv2.GaussianBlur(self.mask.astype(np.float32), (3, 3), 3)
+        alpha_mask = np.stack([smoothed_mask, smoothed_mask, smoothed_mask], axis=2).astype(np.float32)
         cv2.imwrite("./examples/alpha_mask.png", (self.mask * 255).astype(np.uint8))
+
         foreground = cv2.multiply(alpha_mask, self.image.astype(np.float32))
         background = cv2.multiply(1 - alpha_mask, self.virtual_image.astype(np.float32))
         result_image = cv2.add(foreground, background).astype(np.uint8)
+
+        result_image = self.refine_edges(result_image, smoothed_mask)
+
         cv2.imwrite("./examples/result_image.png", result_image)
         self.display_image(result_image)
+    
+    def refine_edges(self, image, mask, blur_amount=1):
+        """Refines the edges of the composited image for smoother blending.
+        Args:
+            image: The composited image
+            mask: The alpha mask
+            blur_amount: Amount of edge blur to apply
+        Returns:
+            The image with refined edges
+        """
+        # Create a narrow band around the mask edges
+        kernel = np.ones((3, 3), np.uint8)
+        edge_mask = cv2.dilate(mask, kernel) - cv2.erode(mask, kernel)
+
+        # Apply selective blurring only to the edge regions
+        blurred = cv2.GaussianBlur(image, (3, 3), blur_amount)
+        result = image.copy()
+        edge_mask = np.stack([edge_mask, edge_mask, edge_mask], axis=2)
+        result = np.where(edge_mask > 0, blurred, result)
+
+        return result
 
     def position_mask(self):
         """Calculates and applies the shift needed to position the mask at the clicked location.
@@ -169,14 +215,10 @@ class ObjectExtractor:
             tuple: A pair of integers (shift_x, shift_y) representing the translation needed.
         """
         y_indices, x_indices = np.where(self.mask)
-        x_min = np.min(x_indices)
-        x_max = np.max(x_indices)
-        y_min = np.min(y_indices)
-        y_max = np.max(y_indices)
 
         current_center_x = np.mean(x_indices)
         current_center_y = np.mean(y_indices)
-        
+
         # Calculate shift needed
         shift_x = int(self.virtual_position_x - current_center_x)
         shift_y = int(self.virtual_position_y - current_center_y)
@@ -202,6 +244,7 @@ class ObjectExtractor:
             shift_x: Integer number of pixels to shift horizontally.
             shift_y: Integer number of pixels to shift vertically.
         """
+
         M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
         # Apply the translation to the image
         shifted_image = cv2.warpAffine(

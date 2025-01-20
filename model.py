@@ -2,6 +2,13 @@ import numpy as np
 from segment_anything import SamPredictor, sam_model_registry
 
 
+def get_model(model_name, logger):
+    if model_name.lower() == "sam":
+        return SAMModel()
+    else:
+        logger.error(f"Model {model_name} does not exist. Please provide supported model")
+
+
 class SAMModel:
     """A wrapper class for the Segment Anything Model (SAM).
     This class provides an interface to initialize and use the SAM model for
